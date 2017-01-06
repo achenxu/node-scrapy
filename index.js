@@ -166,7 +166,7 @@ function parseBody(bodyString, model, options, cb) {
     return cb(err);
   }
 
-  result = getItem(dom, model, options.itemOptions);
+  result = getItem(dom, { }, model, options.itemOptions);
 
   if (result instanceof Error) {
     result.bodyString = bodyString;
@@ -185,7 +185,7 @@ function parseBody(bodyString, model, options, cb) {
  * @return {string|string[]|Error}      Returns a string or an array of strings with the result... or Error
  */
 
-function getItem(dom, item, defaults) {
+function getItem(dom, context, item, defaults) {
 
   var data;
   var get;
@@ -215,12 +215,39 @@ function getItem(dom, item, defaults) {
 
     for (var embedded in item) {
 
-      data[embedded] = getItem(dom, item[embedded], defaults);
+      data[embedded] = getItem(dom, context, item[embedded], defaults);
 
       if (data[embedded] instanceof Error) {
         return data[embedded];
       }
     }
+
+    return data;
+
+  /**
+   * If the configuration is a group, all sub selectors will be evaluated under
+   * the group selector.
+   */
+
+  } else if (item.group) {
+
+    if (context.node) {
+      nodes = dom(context.node).find(item.selector);
+    } else {
+      nodes = dom(item.selector);
+    }
+
+    data = [];
+
+    nodes.each((i, node) => {
+      const d = {};
+
+      for (var embedded in item.children) {
+        d[embedded] = getItem(dom, { node }, item.children[embedded], defaults);
+      }
+
+      data.push(d);
+    });
 
     return data;
 
@@ -241,7 +268,11 @@ function getItem(dom, item, defaults) {
    * @type {Object}
    */
 
-  nodes = dom(selector);
+  if (context && context.node) {
+    nodes = dom(context.node).find(selector);
+  } else {
+    nodes = dom(selector);
+  }
 
   /**
    * If there are no matches for the given `selector` set the result as `null`
@@ -292,8 +323,11 @@ function getItem(dom, item, defaults) {
      */
 
     get = (item.get === 'text')
-      ? function(node) { return transform.apply(item.prefix + trim.apply(node.text()) + item.suffix); }
-      : function(node) { return transform.apply(item.prefix + trim.apply(node.attr(item.get)) + item.suffix); };
+      ? function(node) {
+        return transform.apply(item.prefix + trim.apply(item.getText ? item.getText(node, dom) : node.text()) + item.suffix);
+      } : function(node) {
+        return transform.apply(item.prefix + trim.apply(node.attr(item.get)) + item.suffix);
+      };
 
     /**
      * When `unique` is set to `true`, only the first match will be returned, no
@@ -323,7 +357,11 @@ function getItem(dom, item, defaults) {
         data = [];
 
         for (var i = nodes.length - 1; i >= 0; i--) {
-          data[i] = get(nodes.eq(i));
+          if (item.array) {
+            data[i] = get(nodes.eq(i));
+          } else {
+            data[i] = get(nodes.eq(i));
+          }
         }
 
         break;
